@@ -8,7 +8,7 @@ st.set_page_config(page_title="Dashboard Transactions Complet", layout="wide")
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("/Users/mac/Desktop/Transactions_data_complet.csv")
+    df = pd.read_csv("Transactions_data_complet.csv") 
     df['TransactionStartTime'] = pd.to_datetime(df['TransactionStartTime'], utc=True)
     df['Année'] = df['TransactionStartTime'].dt.year
     df['Mois'] = df['TransactionStartTime'].dt.month
