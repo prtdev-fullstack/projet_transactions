@@ -12,7 +12,7 @@ Utilisez les filtres pour explorer les données.
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("/Users/mac/Desktop/Transactions_data_complet.csv", parse_dates=['TransactionStartTime'])
+    df = pd.read_csv("Transactions_data_complet.csv", parse_dates=['TransactionStartTime'])
     return df
 
 df = load_data()
