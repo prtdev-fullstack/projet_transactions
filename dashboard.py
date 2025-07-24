@@ -1,155 +1,138 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 import plotly.express as px
 
-st.set_page_config(page_title="Dashboard Transactions Complet", layout="wide")
+# Titre et description
+st.set_page_config(page_title="Dashboard Transactions", layout="wide")
+st.title("📊 Dashboard Transactions - Analyse complète")
+st.markdown("""
+Ce dashboard présente une analyse interactive et visuelle des transactions.
+Utilisez les filtres pour explorer les données.
+""")
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("Transactions_data_complet.csv") 
-    df['TransactionStartTime'] = pd.to_datetime(df['TransactionStartTime'], utc=True)
-    df['Année'] = df['TransactionStartTime'].dt.year
-    df['Mois'] = df['TransactionStartTime'].dt.month
-    df['Jour'] = df['TransactionStartTime'].dt.day
-    df['Heure'] = df['TransactionStartTime'].dt.hour
-    df['AnneeMois'] = df['TransactionStartTime'].dt.to_period('M').astype(str)
+    df = pd.read_csv("/Users/mac/Desktop/Transactions_data_complet.csv", parse_dates=['TransactionStartTime'])
     return df
 
 df = load_data()
 
-st.title("📊 Dashboard Transactions Complet")
-
-# Sidebar filtres
+# Filtres colonne latérale
 st.sidebar.header("Filtres")
+product_filter = st.sidebar.multiselect(
+    "Catégories produits",
+    options=df['ProductCategory'].unique(),
+    default=df['ProductCategory'].unique()
+)
 
-years = sorted(df['Année'].unique())
-year_filter = st.sidebar.multiselect("Année", years, default=years)
+provider_filter = st.sidebar.multiselect(
+    "Fournisseurs",
+    options=df['ProviderId'].unique(),
+    default=df['ProviderId'].unique()
+)
 
-categories = sorted(df['ProductCategory'].unique())
-category_filter = st.sidebar.multiselect("Catégorie produit", categories, default=categories)
+fraud_filter = st.sidebar.radio(
+    "Filtrer par fraude",
+    options=["Tous", "Fraudes uniquement", "Non fraudes uniquement"]
+)
 
-providers = sorted(df['ProviderId'].unique())
-provider_filter = st.sidebar.multiselect("Fournisseur", providers, default=providers)
-
-country_filter = st.sidebar.multiselect("Pays (CountryCode)", sorted(df['CountryCode'].unique()), default=sorted(df['CountryCode'].unique()))
-
-channel_filter = st.sidebar.multiselect("Canal (ChannelId)", sorted(df['ChannelId'].unique()), default=sorted(df['ChannelId'].unique()))
-
-filtered_df = df[
-    (df['Année'].isin(year_filter)) &
-    (df['ProductCategory'].isin(category_filter)) &
-    (df['ProviderId'].isin(provider_filter)) &
-    (df['CountryCode'].isin(country_filter)) &
-    (df['ChannelId'].isin(channel_filter))
+# Appliquer filtres
+df_filtered = df[
+    (df['ProductCategory'].isin(product_filter)) &
+    (df['ProviderId'].isin(provider_filter))
 ]
 
-# Stats clés
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Nombre Transactions", filtered_df.shape[0])
-col2.metric("Montant Total", f"{filtered_df['Amount'].sum():,.2f}")
-col3.metric("Montant Moyen", f"{filtered_df['Amount'].mean():,.2f}")
-col4.metric("Transactions Fraude", filtered_df['FraudResult'].sum())
-col5.metric("Transactions Négatives", (filtered_df['Amount'] < 0).sum())
+if fraud_filter == "Fraudes uniquement":
+    df_filtered = df_filtered[df_filtered['FraudResult'] == 1]
+elif fraud_filter == "Non fraudes uniquement":
+    df_filtered = df_filtered[df_filtered['FraudResult'] == 0]
 
+st.markdown(f"### Données filtrées : {len(df_filtered)} transactions")
+
+# 1. Distribution des montants
+st.subheader("Distribution des montants (Amount)")
+fig_amount = px.histogram(df_filtered, x="Amount", nbins=50, marginal="box",
+                          title="Répartition des montants des transactions",
+                          color='FraudResult', color_discrete_map={0:"green",1:"red"},
+                          labels={"Amount": "Montant", "FraudResult": "Fraude"})
+st.plotly_chart(fig_amount, use_container_width=True)
+
+# 2. Proportion des fraudes
+st.subheader("Proportion des fraudes")
+fraud_counts = df_filtered['FraudResult'].value_counts().rename({0:'Non Fraude', 1:'Fraude'})
+fraud_counts = fraud_counts.reset_index()
+fraud_counts.columns = ['Statut', 'Nombre']
+
+fig_pie = px.pie(fraud_counts, values='Nombre', names='Statut',
+                 color='Statut',
+                 color_discrete_map={'Fraude':'red', 'Non Fraude':'green'},
+                 title="Proportion des transactions frauduleuses")
+st.plotly_chart(fig_pie, use_container_width=True)
+
+# 3. Transactions par catégorie de produit
+st.subheader("Transactions par catégorie de produit")
+cat_counts = df_filtered['ProductCategory'].value_counts().reset_index()
+cat_counts.columns = ['Catégorie', 'Nombre']
+fig_bar_cat = px.bar(cat_counts, x='Catégorie', y='Nombre',
+                     title="Nombre de transactions par catégorie",
+                     text='Nombre')
+st.plotly_chart(fig_bar_cat, use_container_width=True)
+
+# 4. Transactions par fournisseur
+st.subheader("Transactions par fournisseur")
+prov_counts = df_filtered['ProviderId'].value_counts().reset_index()
+prov_counts.columns = ['Fournisseur', 'Nombre']
+fig_bar_prov = px.bar(prov_counts, x='Fournisseur', y='Nombre',
+                      title="Nombre de transactions par fournisseur",
+                      text='Nombre')
+st.plotly_chart(fig_bar_prov, use_container_width=True)
+
+# 5. Analyse temporelle : transactions par mois
+st.subheader("Transactions par mois")
+df_filtered['Month'] = df_filtered['TransactionStartTime'].dt.to_period('M').astype(str)
+month_counts = df_filtered['Month'].value_counts().sort_index().reset_index()
+month_counts.columns = ['Mois', 'Nombre']
+fig_line_month = px.line(month_counts, x='Mois', y='Nombre',
+                         title="Nombre de transactions par mois")
+st.plotly_chart(fig_line_month, use_container_width=True)
+
+# 6. Heatmap jours/heures
+st.subheader("Heatmap des transactions par jour et heure")
+df_filtered['DayOfWeek'] = df_filtered['TransactionStartTime'].dt.day_name()
+df_filtered['Hour'] = df_filtered['TransactionStartTime'].dt.hour
+
+heatmap_data = df_filtered.groupby(['DayOfWeek', 'Hour']).size().reset_index(name='count')
+# Ordre des jours pour plus de lisibilité
+days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+heatmap_data['DayOfWeek'] = pd.Categorical(heatmap_data['DayOfWeek'], categories=days_order, ordered=True)
+heatmap_data = heatmap_data.sort_values(['DayOfWeek', 'Hour'])
+
+heatmap_pivot = heatmap_data.pivot(index='DayOfWeek', columns='Hour', values='count')
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(15,6))
+sns.heatmap(heatmap_pivot, cmap="YlGnBu", ax=ax)
+plt.title("Transactions par jour de la semaine et heure")
+st.pyplot(fig)
+
+# 7. Montant moyen par catégorie
+st.subheader("Montant moyen par catégorie de produit")
+mean_amount_cat = df_filtered.groupby('ProductCategory')['Amount'].mean().reset_index()
+fig_bar_mean = px.bar(mean_amount_cat, x='ProductCategory', y='Amount',
+                      title="Montant moyen par catégorie",
+                      labels={"Amount": "Montant moyen"})
+st.plotly_chart(fig_bar_mean, use_container_width=True)
+
+# 8. Montant total par canal
+st.subheader("Montant total par canal")
+amount_by_channel = df_filtered.groupby('ChannelId')['Amount'].sum().reset_index()
+fig_bar_channel = px.bar(amount_by_channel, x='ChannelId', y='Amount',
+                         title="Montant total par canal")
+st.plotly_chart(fig_bar_channel, use_container_width=True)
+
+# Footer / crédits
 st.markdown("---")
+st.markdown("Dashboard créé par **Marc Obanga** - Powered by Streamlit & Plotly")
 
-# 1. Répartition transactions par catégorie (barplot seaborn)
-st.subheader("Répartition des transactions par catégorie")
-fig1, ax1 = plt.subplots(figsize=(10,5))
-sns.countplot(data=filtered_df, x='ProductCategory', order=filtered_df['ProductCategory'].value_counts().index, ax=ax1)
-plt.xticks(rotation=45)
-st.pyplot(fig1)
-
-# 2. Montant total par année (barplot plotly)
-st.subheader("Montant total par année")
-df_year = filtered_df.groupby('Année')['Amount'].sum().reset_index()
-fig2 = px.bar(df_year, x='Année', y='Amount', labels={"Amount":"Montant total", "Année":"Année"})
-st.plotly_chart(fig2, use_container_width=True)
-
-# 3. Distribution des montants par heure (boxplot seaborn)
-st.subheader("Distribution des montants par heure")
-fig3, ax3 = plt.subplots(figsize=(10,5))
-sns.boxplot(data=filtered_df, x='Heure', y='Amount', ax=ax3)
-st.pyplot(fig3)
-
-# 4. Heatmap corrélations (seaborn)
-st.subheader("Heatmap des corrélations")
-num_cols = ['Amount', 'Value', 'PricingStrategy', 'FraudResult']
-fig4, ax4 = plt.subplots(figsize=(8,6))
-sns.heatmap(filtered_df[num_cols].corr(), annot=True, cmap="coolwarm", ax=ax4)
-st.pyplot(fig4)
-
-# 5. Montant total par mois (ligne plotly)
-st.subheader("Montant total par mois")
-df_month = filtered_df.groupby('AnneeMois')['Amount'].sum().reset_index()
-fig5 = px.line(df_month, x='AnneeMois', y='Amount', markers=True,
-               labels={"AnneeMois": "Année-Mois", "Amount": "Montant total"})
-fig5.update_layout(xaxis_tickangle=-45)
-st.plotly_chart(fig5, use_container_width=True)
-
-# 6. Répartition catégories en pourcentage (pie plotly)
-st.subheader("Répartition des catégories en pourcentage")
-cat_sum = filtered_df.groupby('ProductCategory')['Amount'].sum().reset_index()
-fig6 = px.pie(cat_sum, values='Amount', names='ProductCategory', title="Part des catégories")
-st.plotly_chart(fig6, use_container_width=True)
-
-# 7. Montants par fournisseur (boxplot seaborn)
-st.subheader("Montants par fournisseur")
-fig7, ax7 = plt.subplots(figsize=(12,6))
-sns.boxplot(data=filtered_df, x='ProviderId', y='Amount', ax=ax7)
-plt.xticks(rotation=45)
-st.pyplot(fig7)
-
-# 8. Histogramme des montants
-st.subheader("Histogramme des montants")
-fig8, ax8 = plt.subplots(figsize=(10,5))
-ax8.hist(filtered_df['Amount'], bins=50, color='skyblue', edgecolor='black')
-ax8.set_xlabel("Montant")
-ax8.set_ylabel("Nombre de transactions")
-st.pyplot(fig8)
-
-# 9. Evolution des fraudes dans le temps
-st.subheader("Evolution des fraudes dans le temps")
-df_fraud = filtered_df.groupby('AnneeMois')['FraudResult'].sum().reset_index()
-fig9 = px.line(df_fraud, x='AnneeMois', y='FraudResult', markers=True,
-               labels={"AnneeMois": "Année-Mois", "FraudResult": "Nombre fraudes"})
-fig9.update_layout(xaxis_tickangle=-45)
-st.plotly_chart(fig9, use_container_width=True)
-
-# 10. Répartition des pays (barplot plotly)
-st.subheader("Répartition des transactions par pays")
-df_country = filtered_df['CountryCode'].value_counts().reset_index()
-df_country.columns = ['CountryCode', 'Count']
-fig10 = px.bar(df_country, x='CountryCode', y='Count', labels={"Count": "Nombre de transactions"})
-st.plotly_chart(fig10, use_container_width=True)
-
-# 11. Scatter Amount vs Value
-st.subheader("Scatter plot Montant vs Valeur")
-fig11 = px.scatter(filtered_df, x='Amount', y='Value', color='FraudResult',
-                   labels={"Amount": "Montant", "Value": "Valeur", "FraudResult": "Fraude"},
-                   title="Montant vs Valeur coloré par fraude")
-st.plotly_chart(fig11, use_container_width=True)
-
-# 12. Barplot des canaux
-st.subheader("Transactions par canal (ChannelId)")
-df_channel = filtered_df['ChannelId'].value_counts().reset_index()
-df_channel.columns = ['ChannelId', 'Count']
-fig12 = px.bar(df_channel, x='ChannelId', y='Count', labels={"Count": "Nombre de transactions"})
-st.plotly_chart(fig12, use_container_width=True)
-
-# 13. Transactions positives vs négatives
-st.subheader("Transactions positives vs négatives")
-pos_count = (filtered_df['Amount'] >= 0).sum()
-neg_count = (filtered_df['Amount'] < 0).sum()
-df_pos_neg = pd.DataFrame({
-    'Type': ['Positives', 'Négatives'],
-    'Count': [pos_count, neg_count]
-})
-fig13 = px.pie(df_pos_neg, values='Count', names='Type', title="Répartition des transactions positives et négatives")
-st.plotly_chart(fig13, use_container_width=True)
-
-# Afficher un extrait des données filtrées
-st.subheader("Extrait des données filtrées")
-st.dataframe(filtered_df.head(50))
